@@ -7,6 +7,9 @@ import "./App.css";
 
 import usdtIcon from "./assets/usdt-icon.png";
 import sepoliaEthIcon from "./assets/sepolia-eth-icon.png";
+import xIcon from "./assets/X.png";
+import telegramIcon from "./assets/Telegram.png";
+import youtubeIcon from "./assets/YouTube.png";
 
 const processedEvents = new Set();
 
@@ -34,6 +37,7 @@ function App() {
     const [history, setHistory] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [txStatus, setTxStatus] = useState(null);
+    const [isNetworkChecked, setIsNetworkChecked] = useState(false);
 
     const listenForPurchases = useCallback(
         (ethersProvider, userAccount) => {
@@ -116,6 +120,42 @@ function App() {
         }
     }, [provider, account, listenForPurchases]);
 
+    useEffect(() => {
+        const ethProvider = window.ethereum;
+        if (!ethProvider) return;
+
+        const handleChainChanged = () => {
+            setIsNetworkChecked(false);
+            checkNetwork(ethProvider);
+            updateBalance(provider, account);
+        };
+
+        const handleAccountsChanged = (accounts) => {
+            if (accounts.length === 0) {
+                setAccount("");
+                setProvider(null);
+                setStatus("");
+                setError("Wallet disconnected!");
+                setIsNetworkChecked(false);
+            } else {
+                setAccount(accounts[0]);
+                const ethersProvider = new ethers.providers.Web3Provider(ethProvider);
+                setProvider(ethersProvider);
+                setIsNetworkChecked(false);
+                checkNetwork(ethProvider);
+                updateBalance(ethersProvider, accounts[0]);
+            }
+        };
+
+        ethProvider.on("chainChanged", handleChainChanged);
+        ethProvider.on("accountsChanged", handleAccountsChanged);
+
+        return () => {
+            ethProvider.removeListener("chainChanged", handleChainChanged);
+            ethProvider.removeListener("accountsChanged", handleAccountsChanged);
+        };
+    }, [provider, account]);
+
     const connectWallet = useCallback(async () => {
         const ethProvider = await detectEthereumProvider();
         if (!ethProvider) {
@@ -126,9 +166,11 @@ function App() {
         try {
             const accounts = await ethProvider.request({ method: "eth_requestAccounts" });
             setAccount(accounts[0]);
-            const ethersProvider = new ethers.providers.Web3Provider(ethProvider);
+            const ethersProvider = new ethers.providers.Web3Provider(ethProvider); // Fixed line
             setProvider(ethersProvider);
             setStatus("Wallet connected!");
+
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             await checkNetwork(ethProvider);
             await updateBalance(ethersProvider, accounts[0]);
         } catch (error) {
@@ -136,24 +178,51 @@ function App() {
         }
     }, []);
 
-    const checkNetwork = useCallback(async (ethProvider) => {
-        try {
-            const networkId = await ethProvider.request({ method: "net_version" });
-            if (networkId !== CHAIN_ID) {
-                setError("Please switch to Arbitrum Mainnet!");
-                await ethProvider.request({
-                    method: "wallet_switchEthereumChain",
-                    params: [{ chainId: "0x" + parseInt(CHAIN_ID).toString(16) }],
-                });
-                setNetwork("Arbitrum Mainnet");
-                setStatus("Switched to Arbitrum Mainnet!");
-                setError("");
-            } else {
-                setNetwork("Arbitrum Mainnet");
-                setError("");
+    const checkNetwork = useCallback(async (ethProvider, retries = 3, delay = 1000) => {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                let networkId;
+                try {
+                    console.log(`Attempt ${attempt}: Requesting net_version...`);
+                    networkId = await ethProvider.request({ method: "net_version" });
+                    console.log(`net_version response: ${networkId}`);
+                } catch (err) {
+                    console.log(`net_version failed: ${err.message}. Falling back to eth_chainId...`);
+                    const chainIdHex = await ethProvider.request({ method: "eth_chainId" });
+                    console.log(`eth_chainId response: ${chainIdHex}`);
+                    networkId = parseInt(chainIdHex, 16).toString();
+                }
+                if (!networkId) {
+                    throw new Error("No network ID returned");
+                }
+                if (networkId !== CHAIN_ID) {
+                    setError("Please switch to Arbitrum Mainnet!");
+                    await ethProvider.request({
+                        method: "wallet_switchEthereumChain",
+                        params: [{ chainId: "0x" + parseInt(CHAIN_ID).toString(16) }],
+                    });
+                    setNetwork("Arbitrum Mainnet");
+                    setStatus("Switched to Arbitrum Mainnet!");
+                    setError("");
+                } else {
+                    setNetwork("Arbitrum Mainnet");
+                    setError("");
+                }
+                setIsNetworkChecked(true);
+                return;
+            } catch (error) {
+                console.error(`Attempt ${attempt} failed: ${error.message}`);
+                if (attempt === retries) {
+                    setError(
+                        `Error checking network after ${retries} attempts: ${
+                            error.message || "Unknown error"
+                        }. Please ensure MetaMask is connected to Arbitrum Mainnet with a reliable RPC endpoint (e.g., https://arb1.arbitrum.io/rpc) and your internet connection is stable.`
+                    );
+                } else {
+                    setStatus(`Retrying network check... (${attempt}/${retries})`);
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+                }
             }
-        } catch (error) {
-            setError("Error checking network: " + (error.message || "Unknown error"));
         }
     }, []);
 
@@ -352,7 +421,7 @@ function App() {
                     <motion.button
                         className="swap-btn"
                         onClick={buySepoliaETH}
-                        disabled={isLoading}
+                        disabled={isLoading || !isNetworkChecked}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         transition={{ type: "spring", stiffness: 300 }}
@@ -473,6 +542,45 @@ function App() {
                     </motion.div>
                 )}
             </div>
+
+            <footer className="social-footer">
+                <h4>Follow Us</h4>
+                <div className="social-links">
+                    <motion.a
+                        href="https://x.com/zwh20010228"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="social-link"
+                        whileHover={{ scale: 1.1 }}
+                        transition={{ type: "spring", stiffness: 300 }}
+                    >
+                        <img src={xIcon} alt="Twitter/X" className="social-icon" />
+                        Twitter/X
+                    </motion.a>
+                    <motion.a
+                        href="https://t.me/Sepoliabuy"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="social-link"
+                        whileHover={{ scale: 1.1 }}
+                        transition={{ type: "spring", stiffness: 300 }}
+                    >
+                        <img src={telegramIcon} alt="Telegram" className="social-icon" />
+                        Telegram
+                    </motion.a>
+                    <motion.a
+                        href="https://www.youtube.com/@NiceGamezwh"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="social-link"
+                        whileHover={{ scale: 1.1 }}
+                        transition={{ type: "spring", stiffness: 300 }}
+                    >
+                        <img src={youtubeIcon} alt="YouTube" className="social-icon" />
+                        YouTube
+                    </motion.a>
+                </div>
+            </footer>
         </motion.div>
     );
 }
