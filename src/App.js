@@ -39,6 +39,7 @@ function App() {
     const [txStatus, setTxStatus] = useState(null);
     const [isNetworkChecked, setIsNetworkChecked] = useState(false);
 
+    // Define all functions before useEffect hooks
     const listenForPurchases = useCallback(
         (ethersProvider, userAccount) => {
             if (!ethersProvider || !userAccount) return;
@@ -96,66 +97,6 @@ function App() {
         [pricePerEth]
     );
 
-    useEffect(() => {
-        const savedHistory = localStorage.getItem("txHistory");
-        if (savedHistory) {
-            try {
-                const parsedHistory = JSON.parse(savedHistory);
-                setHistory(parsedHistory.filter((tx) => tx && tx.type && tx.message && tx.timestamp && tx.txHash));
-            } catch (err) {
-                setHistory([]);
-                localStorage.removeItem("txHistory");
-            }
-        }
-    }, []);
-
-    useEffect(() => {
-        localStorage.setItem("txHistory", JSON.stringify(history));
-    }, [history]);
-
-    useEffect(() => {
-        if (provider && account) {
-            const cleanup = listenForPurchases(provider, account);
-            return cleanup;
-        }
-    }, [provider, account, listenForPurchases]);
-
-    useEffect(() => {
-        const ethProvider = window.ethereum;
-        if (!ethProvider) return;
-
-        const handleChainChanged = () => {
-            setIsNetworkChecked(false);
-            checkNetwork(ethProvider);
-            updateBalance(provider, account);
-        };
-
-        const handleAccountsChanged = (accounts) => {
-            if (accounts.length === 0) {
-                setAccount("");
-                setProvider(null);
-                setStatus("");
-                setError("Wallet disconnected!");
-                setIsNetworkChecked(false);
-            } else {
-                setAccount(accounts[0]);
-                const ethersProvider = new ethers.providers.Web3Provider(ethProvider);
-                setProvider(ethersProvider);
-                setIsNetworkChecked(false);
-                checkNetwork(ethProvider);
-                updateBalance(ethersProvider, accounts[0]);
-            }
-        };
-
-        ethProvider.on("chainChanged", handleChainChanged);
-        ethProvider.on("accountsChanged", handleAccountsChanged);
-
-        return () => {
-            ethProvider.removeListener("chainChanged", handleChainChanged);
-            ethProvider.removeListener("accountsChanged", handleAccountsChanged);
-        };
-    }, [provider, account]);
-
     const connectWallet = useCallback(async () => {
         const ethProvider = await detectEthereumProvider();
         if (!ethProvider) {
@@ -166,7 +107,7 @@ function App() {
         try {
             const accounts = await ethProvider.request({ method: "eth_requestAccounts" });
             setAccount(accounts[0]);
-            const ethersProvider = new ethers.providers.Web3Provider(ethProvider); // Fixed line
+            const ethersProvider = new ethers.providers.Web3Provider(ethProvider);
             setProvider(ethersProvider);
             setStatus("Wallet connected!");
 
@@ -244,7 +185,13 @@ function App() {
             setStatus("Balance updated!");
             setError("");
         } catch (error) {
-            setError("Error updating balance: " + (error.message || "Unknown error"));
+            // Check if the error is related to a network mismatch
+            if (error.code === "NETWORK_ERROR" && error.event === "changed") {
+                setError("Please switch to Arbitrum Mainnet and refresh the page.");
+                setStatus("Network mismatch detected.");
+            } else {
+                setError("Error updating balance: " + (error.message || "Unknown error"));
+            }
             setUsdtBalance("0");
             setEthBalance("0");
         }
@@ -333,6 +280,73 @@ function App() {
             setIsLoading(false);
         }
     }, [account, usdtAmount, ethAmount, provider]);
+
+    // Now place useEffect hooks after all function declarations
+    useEffect(() => {
+        const savedHistory = localStorage.getItem("txHistory");
+        if (savedHistory) {
+            try {
+                const parsedHistory = JSON.parse(savedHistory);
+                setHistory(parsedHistory.filter((tx) => tx && tx.type && tx.message && tx.timestamp && tx.txHash));
+            } catch (err) {
+                setHistory([]);
+                localStorage.removeItem("txHistory");
+            }
+        }
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem("txHistory", JSON.stringify(history));
+    }, [history]);
+
+    useEffect(() => {
+        if (provider && account) {
+            const cleanup = listenForPurchases(provider, account);
+            return cleanup;
+        }
+    }, [provider, account, listenForPurchases]);
+
+    useEffect(() => {
+        if (provider && account && isNetworkChecked) {
+            updateBalance(provider, account);
+        }
+    }, [provider, account, isNetworkChecked, updateBalance]);
+
+    useEffect(() => {
+        const ethProvider = window.ethereum;
+        if (!ethProvider) return;
+
+        const handleChainChanged = () => {
+            setIsNetworkChecked(false);
+            checkNetwork(ethProvider);
+            updateBalance(provider, account);
+        };
+
+        const handleAccountsChanged = (accounts) => {
+            if (accounts.length === 0) {
+                setAccount("");
+                setProvider(null);
+                setStatus("");
+                setError("Wallet disconnected!");
+                setIsNetworkChecked(false);
+            } else {
+                setAccount(accounts[0]);
+                const ethersProvider = new ethers.providers.Web3Provider(ethProvider);
+                setProvider(ethersProvider);
+                setIsNetworkChecked(false);
+                checkNetwork(ethProvider);
+                updateBalance(ethersProvider, accounts[0]);
+            }
+        };
+
+        ethProvider.on("chainChanged", handleChainChanged);
+        ethProvider.on("accountsChanged", handleAccountsChanged);
+
+        return () => {
+            ethProvider.removeListener("chainChanged", handleChainChanged);
+            ethProvider.removeListener("accountsChanged", handleAccountsChanged);
+        };
+    }, [provider, account, checkNetwork, updateBalance]);
 
     return (
         <motion.div className="App" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8 }}>
